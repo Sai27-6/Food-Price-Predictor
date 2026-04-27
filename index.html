@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Food Price Predictor</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 24px;
+      background: #f4f6f8;
+      color: #1f2937;
+    }
+    .card {
+      max-width: 700px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 1.6rem;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    label {
+      font-weight: 600;
+      margin-bottom: 4px;
+      display: block;
+    }
+    input, select, button {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #d1d5db;
+      box-sizing: border-box;
+      font-size: 14px;
+    }
+    button {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:disabled {
+      background: #93c5fd;
+      cursor: wait;
+    }
+    .note {
+      font-size: 0.9rem;
+      color: #4b5563;
+      margin-bottom: 14px;
+    }
+    .error {
+      color: #b91c1c;
+      font-weight: 600;
+    }
+    .result {
+      margin-top: 18px;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 14px;
+    }
+    ul {
+      margin-top: 8px;
+      padding-left: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Food Price Predictor</h1>
+    <p class="note">Frontend connected to Flask backend at <code>http://127.0.0.1:5000</code>.</p>
+
+    <div class="row">
+      <div>
+        <label for="year">Year</label>
+        <input id="year" type="number" value="2030" min="1000" />
+      </div>
+      <div>
+        <label for="country">Country (optional)</label>
+        <select id="country">
+          <option value="">Global / none</option>
+        </select>
+      </div>
+      <div>
+        <label for="continent">Continent (used when country is empty)</label>
+        <select id="continent">
+          <option value="">Global / none</option>
+        </select>
+      </div>
+    </div>
+
+    <button id="predictBtn">Get Prediction</button>
+
+    <div id="status" class="note"></div>
+    <div id="result" class="result"></div>
+  </div>
+
+  <script>
+    const API_BASE = "http://127.0.0.1:5000";
+    const countrySelect = document.getElementById("country");
+    const continentSelect = document.getElementById("continent");
+    const predictBtn = document.getElementById("predictBtn");
+    const statusEl = document.getElementById("status");
+    const resultEl = document.getElementById("result");
+
+    async function fetchOptions(endpoint, selectEl) {
+      const res = await fetch(`${API_BASE}/${endpoint}`);
+      if (!res.ok) throw new Error(`Failed to fetch ${endpoint}`);
+      const values = await res.json();
+      for (const value of values) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        selectEl.appendChild(option);
+      }
+    }
+
+    function renderError(message) {
+      resultEl.innerHTML = `<p class="error">${message}</p>`;
+    }
+
+    function renderPrediction(data) {
+      const costsHtml = (data.costs || [])
+        .map((cost) => `<li>${cost}</li>`)
+        .join("");
+      resultEl.innerHTML = `
+        <h3>Prediction Result</h3>
+        <p><strong>Year:</strong> ${data.year}</p>
+        <p><strong>Scope:</strong> ${data.country || "Global"}</p>
+        <p><strong>CPI Change Used:</strong> ${data.cpi_change}%</p>
+        <ul>${costsHtml}</ul>
+      `;
+    }
+
+    countrySelect.addEventListener("change", () => {
+      if (countrySelect.value) {
+        continentSelect.value = "";
+        continentSelect.disabled = true;
+      } else {
+        continentSelect.disabled = false;
+      }
+    });
+
+    predictBtn.addEventListener("click", async () => {
+      const year = Number(document.getElementById("year").value);
+      const country = countrySelect.value;
+      const continent = continentSelect.value;
+
+      if (!year || year < 1000) {
+        renderError("Please enter a valid year (>= 1000).");
+        return;
+      }
+
+      predictBtn.disabled = true;
+      statusEl.textContent = "Fetching prediction...";
+      resultEl.innerHTML = "";
+
+      try {
+        const res = await fetch(`${API_BASE}/predict`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ year, country, continent }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          const msg = Array.isArray(data.error) ? data.error.join(" ") : data.error;
+          throw new Error(msg || "Prediction request failed.");
+        }
+        renderPrediction(data);
+        statusEl.textContent = "Done.";
+      } catch (err) {
+        renderError(err.message || "Something went wrong.");
+        statusEl.textContent = "";
+      } finally {
+        predictBtn.disabled = false;
+      }
+    });
+
+    (async function init() {
+      try {
+        statusEl.textContent = "Loading countries and continents...";
+        await Promise.all([
+          fetchOptions("countries", countrySelect),
+          fetchOptions("continents", continentSelect),
+        ]);
+        statusEl.textContent = "Ready.";
+      } catch (err) {
+        statusEl.textContent = "";
+        renderError("Could not connect to backend. Start Backend.py and refresh.");
+      }
+    })();
+  </script>
+</body>
+</html>
